@@ -4,6 +4,7 @@ public record Balance
 {
     public string PoolId { get; init; }
     public string Address { get; init; }
+    public string PaymentAddress { get; init; }
 
     /// <summary>
     /// Amount owed in pool-base-currency (ie. Bitcoin, not Satoshis)
