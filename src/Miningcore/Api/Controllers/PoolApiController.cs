@@ -657,6 +657,14 @@ public class PoolApiController : ApiControllerBase
 
         switch(mode)
         {
+            case SampleRange.Minute:
+                end = end.AddSeconds(-end.Second);
+
+                start = end.AddHours(-1);
+
+                stats = await cf.Run(con => statsRepo.GetMinerPerformanceBetweenMinutelyAsync(con, pool.Id, address, start, end, ct));
+                break;
+
             case SampleRange.Hour:
                 end = end.AddSeconds(-end.Second);
 
