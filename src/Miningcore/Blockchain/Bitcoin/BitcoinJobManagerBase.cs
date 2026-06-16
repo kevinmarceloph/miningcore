@@ -459,7 +459,13 @@ public abstract class BitcoinJobManagerBase<TJob> : JobManagerBase<TJob>
 
         // chain detection
         if(!hasLegacyDaemon)
-            network = Network.GetNetwork(blockchainInfoResponse.Chain.ToLower());
+        {
+            var chainName = blockchainInfoResponse.Chain.ToLower();
+            // testnet4 uses the same address encoding as testnet3; map it so NBitcoin resolves the network
+            if(chainName == "testnet4")
+                chainName = "testnet";
+            network = Network.GetNetwork(chainName);
+        }
         else
             network = daemonInfoResponse.Testnet ? Network.TestNet : Network.Main;
 
