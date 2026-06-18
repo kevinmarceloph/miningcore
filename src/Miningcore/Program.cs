@@ -931,14 +931,31 @@ public class Program : BackgroundService
 
     private static void UseIpWhiteList(IApplicationBuilder app, bool defaultToLoopback, string[] locations, string[] whitelist)
     {
-        var ipList = whitelist?.Select(IPAddress.Parse).ToList();
-        if(defaultToLoopback && (ipList == null || ipList.Count == 0))
+        // Whitelist entries may be a single IP ("10.0.0.5") or a CIDR range
+        // ("10.36.0.0/14"). CIDR entries let k8s pods (whose IPs are dynamic but
+        // sit in a known pod CIDR) reach the admin API without listing each pod.
+        var ipList = new List<IPAddress>();
+        var networkList = new List<(IPAddress network, int prefixLength)>();
+
+        if(whitelist != null)
+        {
+            foreach(var entry in whitelist)
+            {
+                var slash = entry.IndexOf('/');
+                if(slash >= 0)
+                    networkList.Add((IPAddress.Parse(entry.Substring(0, slash)), int.Parse(entry.Substring(slash + 1))));
+                else
+                    ipList.Add(IPAddress.Parse(entry));
+            }
+        }
+
+        if(defaultToLoopback && ipList.Count == 0 && networkList.Count == 0)
             ipList = new List<IPAddress>(new[]
             {
                 IPAddress.Loopback, IPAddress.IPv6Loopback, IPUtils.IPv4LoopBackOnIPv6
             });
 
-        if(ipList.Count > 0)
+        if(ipList.Count > 0 || networkList.Count > 0)
         {
             // always allow access by localhost
             if(!ipList.Any(x => x.Equals(IPAddress.Loopback)))
@@ -948,9 +965,9 @@ public class Program : BackgroundService
             if(!ipList.Any(x => x.Equals(IPUtils.IPv4LoopBackOnIPv6)))
                 ipList.Add(IPUtils.IPv4LoopBackOnIPv6);
 
-            logger.Info(() => $"API Access to {string.Join(",", locations)} restricted to {string.Join(",", ipList.Select(x => x.ToString()))}");
+            logger.Info(() => $"API Access to {string.Join(",", locations)} restricted to {string.Join(",", ipList.Select(x => x.ToString()).Concat(networkList.Select(n => $"{n.network}/{n.prefixLength}")))}");
 
-            app.UseMiddleware<IPAccessWhitelistMiddleware>(locations, ipList.ToArray(), clusterConfig.Logging.GPDRCompliant);
+            app.UseMiddleware<IPAccessWhitelistMiddleware>(locations, ipList.ToArray(), networkList.ToArray(), clusterConfig.Logging.GPDRCompliant);
         }
     }
 
