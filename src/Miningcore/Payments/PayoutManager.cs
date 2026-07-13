@@ -102,7 +102,11 @@ public class PayoutManager : BackgroundService
                 var scheme = ctx.ResolveKeyed<IPayoutScheme>(poolConfig.PaymentProcessing.PayoutScheme);
 
                 await UpdatePoolBalancesAsync(pool, poolConfig, handler, scheme, ct);
-                await PayoutPoolBalancesAsync(pool, poolConfig, handler, ct);
+
+                if(poolConfig.PaymentProcessing.BalancesOnly)
+                    logger.Info(() => $"[{poolConfig.Id}] balancesOnly is set: blocks classified and balances updated, payment execution skipped");
+                else
+                    await PayoutPoolBalancesAsync(pool, poolConfig, handler, ct);
             }
 
             catch(InvalidOperationException ex)

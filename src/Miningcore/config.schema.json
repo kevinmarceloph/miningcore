@@ -524,6 +524,9 @@
         "enabled": {
           "type": "boolean"
         },
+        "balancesOnly": {
+          "type": "boolean"
+        },
         "minimumPayment": {
           "type": "number"
         },

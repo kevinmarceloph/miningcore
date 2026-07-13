@@ -735,6 +735,13 @@ public partial class PoolShareBasedBanningConfig
 public partial class PoolPaymentProcessingConfig
 {
     public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Run block classification and balance calculation but never execute payments.
+    /// For deployments where an external system is the sole payer of miner balances.
+    /// </summary>
+    public bool BalancesOnly { get; set; }
+
     public decimal MinimumPayment { get; set; } // in pool-base-currency (ie. Bitcoin, not Satoshis)
     public PayoutScheme PayoutScheme { get; set; }
     public JToken PayoutSchemeConfig { get; set; }
