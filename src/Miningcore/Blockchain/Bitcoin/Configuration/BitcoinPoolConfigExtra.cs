@@ -30,6 +30,16 @@ public class BitcoinPoolConfigExtra
     public string CoinbaseTxComment { get; set; }
 
     /// <summary>
+    /// Testnet only (hard-refused on mainnet): exploit the testnet minimum-
+    /// difficulty exception (BIP94 "20-minute Exception Rule") by stamping jobs
+    /// nTime = parent + 20min + 1s with the min-difficulty target, instead of
+    /// waiting out the window in real time. Consensus-valid: block timestamps
+    /// only need to exceed MTP and stay within 2h of a validator's clock, and
+    /// a block stamped past the boundary MUST carry min-difficulty nBits.
+    /// </summary>
+    public bool TestnetTimeRoll { get; set; } = false;
+
+    /// <summary>
     /// Blocktemplate stream published via ZMQ
     /// </summary>
     public ZmqPubSubEndpointConfig BtStream { get; set; }

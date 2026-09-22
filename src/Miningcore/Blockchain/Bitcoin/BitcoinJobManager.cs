@@ -29,6 +29,59 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
 
     private BitcoinTemplate coin;
 
+    // TestnetTimeRoll: parent-header time cache (one getblockheader per new parent)
+    private string timeRollParentHash;
+    private ulong timeRollParentTime;
+
+    private const uint MinDiffWindowSeconds = 20 * 60;
+    private const string MinDiffBits = "1d00ffff";
+    private const string MinDiffTarget = "00000000ffff0000000000000000000000000000000000000000000000000000";
+
+    /// <summary>
+    /// Testnet-only (BIP94 "20-minute Exception Rule"): instead of waiting out
+    /// the 20-minute window in real time, stamp the job nTime = parent + 20min
+    /// + 1s and mine at the minimum-difficulty target immediately. A block
+    /// stamped past the boundary MUST carry min-difficulty nBits, so nTime and
+    /// nBits are always overridden together. Fails open (honest template) if
+    /// the parent header can't be resolved.
+    /// </summary>
+    private async Task ApplyTestnetTimeRollAsync(BlockTemplate template, CancellationToken ct)
+    {
+        if(extraPoolConfig?.TestnetTimeRoll != true || template == null)
+            return;
+
+        // hard mainnet refusal, independent of config
+        if(network == NBitcoin.Network.Main)
+            return;
+
+        if(timeRollParentHash != template.PreviousBlockhash)
+        {
+            var response = await rpc.ExecuteAsync<Block>(logger,
+                "getblockheader", ct, new object[] { template.PreviousBlockhash });
+
+            if(response.Error != null || response.Response == null)
+            {
+                logger.Warn(() => $"TestnetTimeRoll: unable to resolve parent header {template.PreviousBlockhash}: {response.Error?.Message}");
+                return;
+            }
+
+            timeRollParentHash = template.PreviousBlockhash;
+            timeRollParentTime = response.Response.Time;
+        }
+
+        var minDiffTime = (uint) (timeRollParentTime + MinDiffWindowSeconds + 1);
+
+        // already past the boundary: the daemon's template carries min-diff bits itself
+        if(template.CurTime >= minDiffTime)
+            return;
+
+        logger.Info(() => $"TestnetTimeRoll: rolling job for height {template.Height} to nTime {minDiffTime} (+{minDiffTime - template.CurTime}s) at min difficulty");
+
+        template.CurTime = minDiffTime;
+        template.Bits = MinDiffBits;
+        template.Target = MinDiffTarget;
+    }
+
     protected override object[] GetBlockTemplateParams()
     {
         var result = base.GetBlockTemplateParams();
@@ -94,6 +147,9 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
             }
 
             var blockTemplate = response.Response;
+
+            await ApplyTestnetTimeRollAsync(blockTemplate, ct);
+
             var job = currentJob;
 
             var isNew = job == null ||
