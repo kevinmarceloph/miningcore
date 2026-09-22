@@ -34,6 +34,17 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
     private ulong timeRollParentTime;
 
     private const uint MinDiffWindowSeconds = 20 * 60;
+
+    // The 2-hour future limit that both Bitcoin consensus (MAX_FUTURE_BLOCK_TIME)
+    // and miningcore's own share validator (BitcoinJob.ProcessShare, now + 7200)
+    // enforce. A rolled nTime above this is rejected as too-far-in-the-future.
+    private const uint MaxFutureSeconds = 2 * 60 * 60;
+
+    // Headroom kept below the 2h ceiling: the block we eventually find is broadcast
+    // some seconds/minutes after the job is built, and it must still be inside the
+    // network's 2h window at broadcast time. Also absorbs miner ntime-rolling.
+    private const uint RollFutureMarginSeconds = 10 * 60;
+
     private const string MinDiffBits = "1d00ffff";
     private const string MinDiffTarget = "00000000ffff0000000000000000000000000000000000000000000000000000";
 
@@ -44,6 +55,13 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
     /// stamped past the boundary MUST carry min-difficulty nBits, so nTime and
     /// nBits are always overridden together. Fails open (honest template) if
     /// the parent header can't be resolved.
+    ///
+    /// Guarded by the 2h future ceiling: testnet4's tip timestamp drifts hours
+    /// ahead of wall-clock (cumulative +20min-per-block), and when parent+20min
+    /// would exceed now + 2h the min-difficulty exception is simply unavailable
+    /// to anyone (the block would be too-far-future). In that regime we leave the
+    /// honest template untouched rather than emit jobs whose shares/block would be
+    /// rejected as "ntime out of range".
     /// </summary>
     private async Task ApplyTestnetTimeRollAsync(BlockTemplate template, CancellationToken ct)
     {
@@ -74,6 +92,17 @@ public class BitcoinJobManager : BitcoinJobManagerBase<BitcoinJob>
         // already past the boundary: the daemon's template carries min-diff bits itself
         if(template.CurTime >= minDiffTime)
             return;
+
+        // ceiling guard: only roll if the rolled nTime stays comfortably inside the
+        // 2h future limit; otherwise the exception is unavailable — fall back honest.
+        var nowUnix = (uint) ((DateTimeOffset) clock.Now).ToUnixTimeSeconds();
+        var ceiling = nowUnix + MaxFutureSeconds - RollFutureMarginSeconds;
+
+        if(minDiffTime > ceiling)
+        {
+            logger.Debug(() => $"TestnetTimeRoll: skipping height {template.Height} — rolled nTime {minDiffTime} is {(minDiffTime - nowUnix) / 60}min ahead of now, past the {(MaxFutureSeconds - RollFutureMarginSeconds) / 60}min ceiling (tip timestamp drift). Mining honest template.");
+            return;
+        }
 
         logger.Info(() => $"TestnetTimeRoll: rolling job for height {template.Height} to nTime {minDiffTime} (+{minDiffTime - template.CurTime}s) at min difficulty");
 
